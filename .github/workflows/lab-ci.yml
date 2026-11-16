@@ -45,6 +45,7 @@ jobs:
           java-version: '17'
           cache: maven
           cache-dependency-path: spring/pom.xml
+      - run: mvn -B -q -f spring/secure-kit-spring/pom.xml install -DskipTests   # 쇼핑몰이 쓰는 secure-kit을 먼저 로컬 Maven 저장소에 설치(Dockerfile.portal과 같은 순서)
       - run: mvn -B -q -f spring/pom.xml -pl mall-portal -am -DskipTests -Ddocker.skip=true package
       - name: Price fix regression tests when patch is present
         run: |
