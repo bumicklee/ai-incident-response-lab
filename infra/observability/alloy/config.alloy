@@ -1,0 +1,105 @@
+// 준비 스택: 원본 Alloy 설정에서 컨테이너 로그 수집만 사용.
+//
+// Docker 문지기(docker-proxy)를 통해 컨테이너 로그를 읽는다.
+// SECURITY 줄은 stream=security, 나머지는 stream=app으로 Loki에 저장한다.
+//
+// 레이블은 app·stream·event·level·lesson만 붙인다. actor·target·trace_id처럼 값이 많은 것은 레이블로 두지 않는다(Loki가 느려진다).
+// SECURITY 줄을 못 찾으면 앱의 로그 형식(로거 이름 칸)을 확인한다.
+
+discovery.docker "sre_lab" {
+  host             = "tcp://docker-proxy:2375"
+  refresh_interval = "10s"
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=sre-lab"]
+  }
+}
+
+discovery.relabel "sre_lab" {
+  targets = []
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "app"
+  }
+  // 수집 장치 자신의 로그는 모으지 않는다
+  rule {
+    source_labels = ["app"]
+    regex         = "loki|alloy|grafana|docker-proxy"
+    action        = "drop"
+  }
+}
+
+loki.source.docker "sre_lab" {
+  host             = "tcp://docker-proxy:2375"
+  targets          = discovery.docker.sre_lab.targets
+  relabel_rules    = discovery.relabel.sre_lab.rules
+  refresh_interval = "10s"
+  forward_to       = [loki.process.containers.receiver]
+}
+
+loki.process "containers" {
+  // ── 8-5 세 번째 그물: 앱이 놓친 민감 값을 여기서 한 번 더 가린다(앱의 LogMask와 같은 패턴) ──
+  // 가릴 것이 있는 줄에는 먼저 masked_at_collector="true"와 무엇을(leak=jwt·phone·password) 붙이고, 그다음 값을 가린다.
+  // 앱 단계가 놓쳤다는 뜻이라 경보(rules/collector.yaml, log.leak.masked_at_collector)가 울린다. 값은 남기지 않는다.
+  stage.match {
+    selector = "{app=~\".+\"} |~ \"eyJ[A-Za-z0-9_-]{5,}[.][A-Za-z0-9_-]{5,}[.]\""
+    stage.static_labels {
+      values = { masked_at_collector = "true", leak = "jwt" }
+    }
+  }
+  stage.match {
+    selector = "{app=~\".+\"} |~ \"(^|[^0-9A-Za-z])01[016789]-?[0-9]{3,4}-?[0-9]{4}([^0-9A-Za-z]|$)\""
+    stage.static_labels {
+      values = { masked_at_collector = "true", leak = "phone" }
+    }
+  }
+  stage.match {
+    selector = "{app=~\".+\"} |~ \"(?i)\\x22(password|newPassword|oldPassword|token|refreshToken)\\x22[ ]*:[ ]*\\x22[^\\x22*]\""
+    stage.static_labels {
+      values = { masked_at_collector = "true", leak = "password" }
+    }
+  }
+  stage.replace {
+    expression = "(eyJ[A-Za-z0-9_-]{5,}[.][A-Za-z0-9_-]{5,}[.][A-Za-z0-9_-]*)"
+    replace    = "eyJ***"
+  }
+  stage.replace {
+    expression = "(?:^|[^0-9A-Za-z])(01[016789]-?[0-9]{3,4}-?[0-9]{4})(?:[^0-9A-Za-z]|$)"
+    replace    = "010-****-****"
+  }
+  stage.replace {
+    expression = "(?i)\"(?:password|newPassword|oldPassword|token|refreshToken)\"[ ]*:[ ]*\"([^\"*][^\"]*)\""
+    replace    = "***"
+  }
+
+  // Spring 줄의 수준: "2026-11-10T10:00:00.000+09:00  WARN 1 --- [...] ..."
+  stage.regex {
+    expression = "^\\S+\\s+(?P<lvl>TRACE|DEBUG|INFO|WARN|ERROR)\\s"
+  }
+  // SECURITY 줄: Spring 로거 칸 "SECURITY<공백> : {json}"
+  stage.regex {
+    expression = "\\sSECURITY\\s+(?::\\s+)?(?P<payload>\\{.*\\})\\s*$"
+  }
+  stage.json {
+    source      = "payload"
+    expressions = { event = "event", lesson = "lesson" }
+  }
+  stage.template {
+    source   = "stream"
+    template = "{{ if .payload }}security{{ else }}app{{ end }}"
+  }
+  stage.labels {
+    values = { level = "lvl", event = "", lesson = "", stream = "" }
+  }
+  // SECURITY 줄은 JSON 부분만 줄로 남긴다(질의에서 | json 으로 바로 꺼내게). 나머지 줄은 그대로
+  stage.output {
+    source = "payload"
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

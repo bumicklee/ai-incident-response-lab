@@ -1,0 +1,6 @@
+# AI 수정 하네스의 배포: 사람이 머지한 사본의 main으로 만든 이미지로 본 쇼핑몰(mall-portal)을 바꾼다.
+#   make ai-fix-deploy TASK=price|owner   (AI_DEPLOY_IMAGE=sre-lab/mall-portal:ai-<과제>)
+#   되돌리기: make ai-fix-rollback TASK=…  → 기본 이미지(sre-lab/mall-portal:dev)로 다시 띄운다
+services:
+  mall-portal:
+    image: ${AI_DEPLOY_IMAGE:?AI_DEPLOY_IMAGE가 필요합니다}

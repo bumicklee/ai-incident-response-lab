@@ -1,0 +1,11 @@
+FROM maven:3.9.12-eclipse-temurin-17
+WORKDIR /src
+COPY pom.xml ./
+COPY mall-common/pom.xml mall-common/pom.xml
+COPY mall-mbg/pom.xml mall-mbg/pom.xml
+COPY mall-security/pom.xml mall-security/pom.xml
+COPY mall-portal/pom.xml mall-portal/pom.xml
+COPY . .
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -q -pl mall-portal -am -Dtest=LocalPriceFixTest \
+    -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Ddocker.skip=true test

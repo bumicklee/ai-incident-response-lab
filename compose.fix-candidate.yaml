@@ -1,0 +1,32 @@
+services:
+  mall-portal-candidate:
+    image: ${CANDIDATE_IMAGE:-sre-lab/mall-portal:fix-candidate}   # AI 수정 하네스는 sre-lab/mall-portal:ai-<과제>
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/mall?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Seoul&useSSL=false&allowPublicKeyRetrieval=true
+      DAON_DB_USER: root
+      DAON_DB_PASSWORD: ${LAB_MYSQL_PASSWORD:-sre-lab-root-2026}
+      DAON_DRUID_PASSWORD: ${LAB_DRUID_PASSWORD:-sre-lab-druid-2026}
+      DAON_OPENBAO_ADDR: http://openbao:8200
+      DAON_OPENBAO_ROLE: portal
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/mall-port
+      SPRING_DATA_MONGODB_USERNAME: ""
+      SPRING_DATA_REDIS_PASSWORD: ${LAB_REDIS_PASSWORD:-sre-lab-redis-2026}   # secure-kit 기동 검사가 빈 비밀번호를 거부한다
+      SPRING_RABBITMQ_USERNAME: sre-lab
+      SPRING_RABBITMQ_PASSWORD: ${LAB_RABBIT_PASSWORD:-sre-lab-rabbit-2026}
+      SECUREKIT_SIGNED_SWITCHES_ENABLED: "false"
+      SECUREKIT_SERVER_PRICE_ENABLED: "false"
+      SECUREKIT_RETURN_OWNER_ENABLED: "true"
+      SECUREKIT_KIT_LOGIN_ENABLED: "false"
+      LOGGING_PATTERN_CORRELATION: "[%X{trace_id:-}] "
+      TZ: Asia/Seoul
+    volumes:
+      - bao-creds:/run/openbao:ro
+    ports: ["127.0.0.1:19186:8085"]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      mongo: {condition: service_healthy}
+      openbao-init: {condition: service_completed_successfully}
+    mem_limit: 768m

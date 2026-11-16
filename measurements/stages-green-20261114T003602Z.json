@@ -1,0 +1,109 @@
+{
+  "run_id": "20261114T003602Z",
+  "mode": "green",
+  "started_utc": "2026-11-14T00:36:02.108415+00:00",
+  "ended_utc": "2026-11-14T00:36:05.885940+00:00",
+  "portal_url": "http://127.0.0.1:18085",
+  "loki_url": "http://127.0.0.1:13100",
+  "synthetic_data": true,
+  "steps": [
+    {
+      "step": "normal_home",
+      "http_status": 200,
+      "body_code": 200,
+      "message": "작업 성공",
+      "trace_id": "sre-68973bd7bde44354",
+      "latency_ms": 55.0
+    },
+    {
+      "step": "normal_own_order",
+      "http_status": 200,
+      "body_code": 200,
+      "message": "작업 성공",
+      "trace_id": "sre-b225af8166f54688",
+      "latency_ms": 24.0
+    },
+    {
+      "step": "security_foreign_order_denied",
+      "http_status": 200,
+      "body_code": 500,
+      "message": "주문을 찾을 수 없습니다",
+      "trace_id": "sre-93481a6115e4432b",
+      "latency_ms": 37.5
+    },
+    {
+      "step": "error_product_lookup",
+      "http_status": 200,
+      "body_code": 200,
+      "message": "작업 성공",
+      "trace_id": "sre-0f4d6663a8d44abc",
+      "latency_ms": 30.7
+    },
+    {
+      "step": "error_cart_before",
+      "http_status": 200,
+      "body_code": 200,
+      "message": "작업 성공",
+      "trace_id": "sre-c63d79ce7a874d06",
+      "latency_ms": 23.7
+    },
+    {
+      "step": "error_cart_add_without_price",
+      "http_status": 200,
+      "body_code": 200,
+      "message": "작업 성공",
+      "trace_id": "sre-09a6a643a0174239",
+      "latency_ms": 23.7
+    },
+    {
+      "step": "error_order_without_price",
+      "http_status": 200,
+      "body_code": 200,
+      "message": "주문 성공",
+      "trace_id": "sre-18eba4fb9efa42f5",
+      "latency_ms": 125.2
+    },
+    {
+      "step": "cleanup_created_order",
+      "http_status": 200,
+      "body_code": 200,
+      "message": "작업 성공",
+      "trace_id": "sre-b545ac2adcc14deb",
+      "latency_ms": 42.4
+    },
+    {
+      "step": "cleanup_lab_cart",
+      "http_status": 200,
+      "body_code": 200,
+      "message": "작업 성공",
+      "trace_id": "sre-31707d1b53b64883",
+      "latency_ms": 14.5
+    },
+    {
+      "step": "security_foreign_return",
+      "http_status": 200,
+      "body_code": 500,
+      "message": "주문을 찾을 수 없습니다",
+      "trace_id": "sre-94a0fac80e8846a1",
+      "latency_ms": 17.9
+    }
+  ],
+  "loki": {
+    "security_denied": {
+      "count": 2,
+      "timestamps_ns": [
+        "1794616562558552719",
+        "1794616562877822886"
+      ]
+    },
+    "portal_errors": {
+      "count": 0,
+      "timestamps_ns": []
+    }
+  },
+  "cleanup_return_marker": "SRE-LAB-20261114T003602Z-green",
+  "notes": [
+    "Full API responses, bearer tokens, customer addresses and phone numbers are not saved.",
+    "The synthetic return application must be removed by cleanup command before reuse."
+  ]
+}

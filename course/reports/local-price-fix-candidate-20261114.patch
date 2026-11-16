@@ -1,0 +1,280 @@
+diff --git a/spring/mall-portal/src/main/java/com/macro/mall/portal/controller/OmsCartItemController.java b/spring/mall-portal/src/main/java/com/macro/mall/portal/controller/OmsCartItemController.java
+--- a/spring/mall-portal/src/main/java/com/macro/mall/portal/controller/OmsCartItemController.java
++++ b/spring/mall-portal/src/main/java/com/macro/mall/portal/controller/OmsCartItemController.java
+@@ -46,9 +46,6 @@
+     @RequestMapping(value = "/add", method = RequestMethod.POST)
+     @ResponseBody
+     public ResponseEntity<CommonResult> add(@RequestBody CartAddParam param) {
+-        if (!SecureKitSwitch.on("server-price")) {
+-            return addUnchecked(param);               // [랩 스위치] 끄면 고치기 전 모습(요청 가격을 그대로 담는다)
+-        }
+         ResponseEntity<CommonResult> bad = checkQuantity(param.getQuantity());
+         if (bad != null) {
+             return bad;
+@@ -109,18 +106,13 @@
+     @ResponseBody
+     public CommonResult updateAttr(@RequestBody CartAddParam param) {
+         // 다온마켓 10-8: 규격 바꾸기도 같은 DTO. 지우는 줄은 서비스가 「내 줄」인지 보고 지운다(F09 확장)
+-        if (SecureKitSwitch.on("server-price")) {
+-            if (param.getId() == null || param.getProductId() == null || param.getProductSkuId() == null
+-                    || checkQuantity(param.getQuantity()) != null) {
+-                return CommonResult.validateFailed("장바구니 줄·상품·규격·수량(1~99)을 확인하세요");
+-            }
+-            noteTamper(param);
++        if (param.getId() == null || param.getProductId() == null || param.getProductSkuId() == null
++                || checkQuantity(param.getQuantity()) != null) {
++            return CommonResult.validateFailed("장바구니 줄·상품·규격·수량(1~99)을 확인하세요");
+         }
++        noteTamper(param);
+         OmsCartItem cartItem = toItem(param);
+         cartItem.setId(param.getId());
+-        if (!SecureKitSwitch.on("server-price")) {
+-            cartItem.setPrice(param.getPrice());
+-        }
+         int count = cartItemService.updateAttr(cartItem);
+         if (count > 0) {
+             return CommonResult.success(count);
+@@ -173,18 +165,6 @@
+         }
+     }
+ 
+-    /** 고치기 전 모습(스위치를 껐을 때만): 요청 본문의 가격을 그대로 장바구니에 */
+-    private ResponseEntity<CommonResult> addUnchecked(CartAddParam param) {
+-        ResponseEntity<CommonResult> bad = checkQuantity(param.getQuantity());
+-        if (bad != null) {
+-            return bad;
+-        }
+-        OmsCartItem item = toItem(param);
+-        item.setPrice(param.getPrice());
+-        int count = cartItemService.add(item);
+-        return count > 0 ? ResponseEntity.ok(CommonResult.success(count)) : ResponseEntity.ok(CommonResult.failed());
+-    }
+-
+     /** 수량이 비었거나 1~99 밖이면 400. 정상 화면이 보내지 않는 값이라 INFO 이벤트(input.denied.quantity)로 남긴다 */
+     private ResponseEntity<CommonResult> checkQuantity(Integer quantity) {
+         if (!SecureKitSwitch.on("input-limits") || (quantity != null && quantity >= MIN_QTY && quantity <= MAX_QTY)) {
+diff --git a/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsCartItemServiceImpl.java b/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsCartItemServiceImpl.java
+--- a/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsCartItemServiceImpl.java
++++ b/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsCartItemServiceImpl.java
+@@ -16,7 +16,6 @@
+ import com.macro.mall.portal.service.OmsCartItemService;
+ import com.macro.mall.portal.service.OmsPromotionService;
+ import com.macro.mall.portal.service.UmsMemberService;
+-import com.macro.mall.security.securekit.SecureKitSwitch;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ import org.springframework.util.CollectionUtils;
+@@ -60,9 +59,7 @@
+         } else {
+             cartItem.setModifyDate(new Date());
+             existCartItem.setQuantity(existCartItem.getQuantity() + cartItem.getQuantity());
+-            if (SecureKitSwitch.on("server-price")) {
+-                existCartItem.setPrice(cartItem.getPrice());   // 다온마켓 10-8: 예전에 담긴 가격도 지금 SKU 가격으로
+-            }
++            existCartItem.setPrice(cartItem.getPrice());   // 예전에 담긴 가격도 지금 SKU 가격으로
+             count = cartItemMapper.updateByPrimaryKey(existCartItem);
+         }
+         return count;
+@@ -70,7 +67,7 @@
+ 
+     /**
+      * 다온마켓 10-8: pms_sku_stock·pms_product에서 읽어 장바구니 줄을 채운다. SKU가 없거나 상품과 짝이 맞지 않으면 400.
+-     * [랩 스위치] server-price를 끄면 가격만 요청 값을 그대로 둔다(이름 등은 서버 값, 영상의 「끄면 1원」).
++     * 가격 보호를 끄는 교육용 스위치를 사용하지 않는다.
+      */
+     private void fillFromSku(OmsCartItem cartItem) {
+         PmsSkuStock sku = cartItem.getProductSkuId() == null ? null : skuStockMapper.selectByPrimaryKey(cartItem.getProductSkuId());
+@@ -81,9 +78,10 @@
+         if (product == null || !Integer.valueOf(1).equals(product.getPublishStatus()) || Integer.valueOf(1).equals(product.getDeleteStatus())) {
+             Asserts.fail("판매하지 않는 상품입니다");
+         }
+-        if (SecureKitSwitch.on("server-price")) {
+-            cartItem.setPrice(sku.getPrice());
++        if (sku.getPrice() == null) {
++            Asserts.fail("상품 가격을 확인할 수 없습니다");
+         }
++        cartItem.setPrice(sku.getPrice());
+         cartItem.setProductSkuCode(sku.getSkuCode());
+         cartItem.setProductAttr(sku.getSpData());
+         cartItem.setProductName(product.getName());
+diff --git a/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java b/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
+--- a/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
++++ b/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
+@@ -4,11 +4,11 @@
+ import com.macro.mall.model.PmsProductFullReduction;
+ import com.macro.mall.model.PmsProductLadder;
+ import com.macro.mall.model.PmsSkuStock;
++import com.macro.mall.common.exception.Asserts;
+ import com.macro.mall.portal.dao.PortalProductDao;
+ import com.macro.mall.portal.domain.CartPromotionItem;
+ import com.macro.mall.portal.domain.PromotionProduct;
+ import com.macro.mall.portal.service.OmsPromotionService;
+-import com.macro.mall.security.securekit.SecureKitSwitch;
+ import org.springframework.beans.BeanUtils;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+@@ -177,12 +177,13 @@
+     /**
+      * 다온마켓 10-8: 주문 확인(generateConfirmOrder)과 주문 생성(generateOrder)이 모두 지나는 곳. 모든 갈래에서 가격을 SKU에서 다시 정한다.
+      * 단품 할인 갈래가 원래 하던 일(setPrice(originalPrice))을 나머지 갈래에도 똑같이 한다. 장바구니에 오래전에 담긴 가격도 여기서 바로잡힌다.
+-     * [랩 스위치] server-price를 끄면 고치기 전 모습(장바구니 가격을 그대로).
++     * 장바구니의 요청 가격과 보호 스위치에 의존하지 않는다.
+      */
+     private void serverPrice(CartPromotionItem cartPromotionItem, PmsSkuStock skuStock) {
+-        if (skuStock != null && skuStock.getPrice() != null && SecureKitSwitch.on("server-price")) {
+-            cartPromotionItem.setPrice(skuStock.getPrice());
+-        }
++        if (skuStock == null || skuStock.getPrice() == null) {
++            Asserts.fail("상품 가격을 확인할 수 없습니다");
++        }
++        cartPromotionItem.setPrice(skuStock.getPrice());
+     }
+ 
+     private PmsProductFullReduction getProductFullReduction(BigDecimal totalAmount,List<PmsProductFullReduction> fullReductionList) {
+diff --git a/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPortalOrderServiceImpl.java b/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPortalOrderServiceImpl.java
+--- a/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPortalOrderServiceImpl.java
++++ b/spring/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPortalOrderServiceImpl.java
+@@ -843,11 +843,9 @@
+      * 다르면 주문을 만들지 않고 price.tampered. 단품 할인 상품도 price는 정가(할인은 reduceAmount)라 같은 비교가 맞다.
+      */
+     private void checkFinalPrice(UmsMember member, CartPromotionItem item) {
+-        if (!SecureKitSwitch.on("server-price")) {
+-            return;
+-        }
+         PmsSkuStock sku = item.getProductSkuId() == null ? null : skuStockMapper.selectByPrimaryKey(item.getProductSkuId());
+-        if (sku == null || item.getPrice() == null || sku.getPrice().compareTo(item.getPrice()) != 0) {
++        if (sku == null || sku.getPrice() == null || item.getPrice() == null
++                || sku.getPrice().compareTo(item.getPrice()) != 0) {
+             SecurityEventLogger.denied("price.tampered", "10-8")
+                     .actor("member:" + member.getId())
+                     .target("sku:" + (sku == null ? item.getProductSkuId() : sku.getId()))
+diff --git a/spring/mall-portal/src/test/java/com/macro/mall/portal/LocalPriceFixTest.java b/spring/mall-portal/src/test/java/com/macro/mall/portal/LocalPriceFixTest.java
+new file mode 100644
+--- /dev/null
++++ b/spring/mall-portal/src/test/java/com/macro/mall/portal/LocalPriceFixTest.java
+@@ -0,0 +1,125 @@
++package com.macro.mall.portal;
++
++import com.macro.mall.mapper.PmsProductMapper;
++import com.macro.mall.mapper.PmsSkuStockMapper;
++import com.macro.mall.model.OmsCartItem;
++import com.macro.mall.model.PmsProduct;
++import com.macro.mall.model.PmsProductFullReduction;
++import com.macro.mall.model.PmsSkuStock;
++import com.macro.mall.portal.dao.PortalProductDao;
++import com.macro.mall.portal.domain.CartPromotionItem;
++import com.macro.mall.portal.domain.PromotionProduct;
++import com.macro.mall.portal.service.impl.OmsCartItemServiceImpl;
++import com.macro.mall.portal.service.impl.OmsPromotionServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import java.math.BigDecimal;
++import java.util.ArrayList;
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.when;
++
++class LocalPriceFixTest {
++    @Test
++    void promotionAlwaysReplacesCartPriceWithSkuPrice() {
++        OmsPromotionServiceImpl service = new OmsPromotionServiceImpl();
++        CartPromotionItem item = new CartPromotionItem();
++        item.setPrice(BigDecimal.ONE);
++        PmsSkuStock sku = new PmsSkuStock();
++        sku.setPrice(new BigDecimal("12000"));
++
++        ReflectionTestUtils.invokeMethod(service, "serverPrice", item, sku);
++
++        assertEquals(new BigDecimal("12000"), item.getPrice());
++    }
++
++    @Test
++    void cartAlwaysUsesSkuPriceEvenWhenRequestHasNoPrice() {
++        PmsSkuStockMapper skuMapper = mock(PmsSkuStockMapper.class);
++        PmsProductMapper productMapper = mock(PmsProductMapper.class);
++        PmsSkuStock sku = new PmsSkuStock();
++        sku.setId(303L);
++        sku.setProductId(202L);
++        sku.setPrice(new BigDecimal("12000"));
++        PmsProduct product = new PmsProduct();
++        product.setId(202L);
++        product.setPublishStatus(1);
++        product.setDeleteStatus(0);
++        when(skuMapper.selectByPrimaryKey(303L)).thenReturn(sku);
++        when(productMapper.selectByPrimaryKey(202L)).thenReturn(product);
++        OmsCartItemServiceImpl service = new OmsCartItemServiceImpl();
++        ReflectionTestUtils.setField(service, "skuStockMapper", skuMapper);
++        ReflectionTestUtils.setField(service, "productMapper", productMapper);
++        OmsCartItem item = new OmsCartItem();
++        item.setProductId(202L);
++        item.setProductSkuId(303L);
++
++        ReflectionTestUtils.invokeMethod(service, "fillFromSku", item);
++
++        assertEquals(new BigDecimal("12000"), item.getPrice());
++    }
++
++    @Test
++    void singleItemPromotionStillUsesDiscountedPrice() {
++        PmsSkuStock sku = sku();
++        sku.setPromotionPrice(new BigDecimal("9000"));
++        PromotionProduct product = promotionProduct(1, sku);
++        CartPromotionItem result = promotion(product, cart()).get(0);
++
++        assertEquals(new BigDecimal("12000"), result.getPrice());
++        assertEquals(new BigDecimal("3000"), result.getReduceAmount());
++        assertEquals(new BigDecimal("9000"), result.getPrice().subtract(result.getReduceAmount()));
++    }
++
++    @Test
++    void fullReductionPromotionStillAllocatesDiscount() {
++        PmsSkuStock sku = sku();
++        PromotionProduct product = promotionProduct(4, sku);
++        PmsProductFullReduction reduction = new PmsProductFullReduction();
++        reduction.setFullPrice(new BigDecimal("10000"));
++        reduction.setReducePrice(new BigDecimal("2000"));
++        product.setProductFullReductionList(new ArrayList<>(List.of(reduction)));
++        CartPromotionItem result = promotion(product, cart()).get(0);
++
++        assertEquals(new BigDecimal("12000"), result.getPrice());
++        assertEquals(new BigDecimal("2000"), result.getReduceAmount());
++        assertEquals(new BigDecimal("10000"), result.getPrice().subtract(result.getReduceAmount()));
++    }
++
++    private static List<CartPromotionItem> promotion(PromotionProduct product, OmsCartItem item) {
++        PortalProductDao dao = mock(PortalProductDao.class);
++        when(dao.getPromotionProductList(List.of(202L))).thenReturn(List.of(product));
++        OmsPromotionServiceImpl service = new OmsPromotionServiceImpl();
++        ReflectionTestUtils.setField(service, "portalProductDao", dao);
++        return service.calcCartPromotion(List.of(item));
++    }
++
++    private static PromotionProduct promotionProduct(int type, PmsSkuStock sku) {
++        PromotionProduct product = new PromotionProduct();
++        product.setId(202L);
++        product.setPromotionType(type);
++        product.setSkuStockList(List.of(sku));
++        return product;
++    }
++
++    private static PmsSkuStock sku() {
++        PmsSkuStock sku = new PmsSkuStock();
++        sku.setId(303L);
++        sku.setPrice(new BigDecimal("12000"));
++        sku.setStock(10);
++        sku.setLockStock(0);
++        return sku;
++    }
++
++    private static OmsCartItem cart() {
++        OmsCartItem item = new OmsCartItem();
++        item.setProductId(202L);
++        item.setProductSkuId(303L);
++        item.setQuantity(1);
++        item.setPrice(BigDecimal.ONE);
++        return item;
++    }
++}

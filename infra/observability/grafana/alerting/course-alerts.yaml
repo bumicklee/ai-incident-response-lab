@@ -1,0 +1,267 @@
+# Synthetic teaching lab only. The thresholds are checked against the five
+# completed 30-minute HTTP/security baselines before use in a lecture.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: sre-lab-oncall
+    receivers:
+      - uid: sre_lab_webhook
+        type: webhook
+        disableResolveMessage: true
+        settings:
+          url: http://oncall:8080/api/grafana
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: $LAB_ONCALL_INGEST_TOKEN
+  - orgId: 1
+    name: sre-lab-shadow
+    receivers:
+      - uid: sre_lab_shadow_webhook
+        type: webhook
+        disableResolveMessage: true
+        settings:
+          url: http://oncall:8080/api/grafana/shadow
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: $LAB_ONCALL_INGEST_TOKEN
+
+policies:
+  - orgId: 1
+    receiver: sre-lab-oncall
+    group_by: [alertname]
+    group_wait: 10s
+    group_interval: 1m
+    repeat_interval: 1h
+    routes:
+      - receiver: sre-lab-shadow
+        object_matchers:
+          - [sre_mode, '=', shadow]
+        group_by: [alertname, actor]
+        group_wait: 0s
+        group_interval: 30s
+        repeat_interval: 1h
+
+groups:
+  - orgId: 1
+    name: sre-lab-events
+    folder: 백엔드 장애·해킹 탐지 랩
+    interval: 10s
+    rules:
+      - uid: sre_order_500
+        title: Order500Burst
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange: {from: 60, to: 0}
+            model:
+              datasource: {type: loki, uid: loki}
+              editorMode: code
+              expr: 'sum(count_over_time({app="mall-portal"} |= "error.unhandled" [1m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+              queryType: instant
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: {from: 0, to: 0}
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: '$A > 2'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: math
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          sre_kind: error_500
+          fingerprint: error.unhandled.order
+          route: /order/generateOrder
+          severity: warning
+        annotations:
+          summary: Synthetic order 500 burst; inspect trace IDs in Loki.
+      - uid: sre_foreign_order
+        title: ForeignOrderDeniedBurst
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange: {from: 60, to: 0}
+            model:
+              datasource: {type: loki, uid: loki}
+              editorMode: code
+              expr: 'sum(count_over_time({app="mall-portal",stream="security",event="access.denied.not_owner"}[1m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+              queryType: instant
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: {from: 0, to: 0}
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: '$A > 2'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: math
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          sre_kind: security_signal
+          fingerprint: access.denied.not_owner
+          route: /order/detail
+          severity: warning
+        annotations:
+          summary: Repeated ownership denials are an investigation signal, not confirmed compromise.
+      - uid: sre_login_burst
+        title: LoginFailedBurst
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange: {from: 60, to: 0}
+            model:
+              datasource: {type: loki, uid: loki}
+              editorMode: code
+              expr: 'sum(count_over_time({app="mall-portal",stream="security",event="auth.login.failed_burst"}[1m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+              queryType: instant
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: {from: 0, to: 0}
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: '$A > 0'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: math
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          sre_kind: security_signal
+          fingerprint: auth.login.failed_burst
+          route: /sso/login
+          severity: warning
+        annotations:
+          summary: Repeated login failures need account and IP context before judgement.
+      - uid: sre_kit_login_limited
+        title: KitLoginRateLimited
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange: {from: 60, to: 0}
+            model:
+              datasource: {type: loki, uid: loki}
+              editorMode: code
+              expr: 'sum(count_over_time({app="mall-portal",stream="security",event="auth.login.rate_limited"}[1m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+              queryType: instant
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: {from: 0, to: 0}
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: '$A > 0'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: math
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          sre_kind: security_signal
+          fingerprint: auth.login.rate_limited
+          route: /sso/login
+          severity: warning
+        annotations:
+          summary: secure-kit refused logins after the account or IP failure limit. Check account, IP and normal users before judgement.
+      - uid: sre_login_unknown_burst
+        title: LoginUnknownAccountBurst
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange: {from: 60, to: 0}
+            model:
+              datasource: {type: loki, uid: loki}
+              editorMode: code
+              expr: 'sum(count_over_time({app="mall-portal",stream="security",event="auth.login.unknown_account_burst"}[1m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+              queryType: instant
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: {from: 0, to: 0}
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: '$A > 0'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: math
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          sre_kind: security_signal
+          fingerprint: auth.login.unknown_account_burst
+          route: /sso/login
+          severity: warning
+        annotations:
+          summary: Many logins to accounts that do not exist. Possible credential stuffing below the per-IP limit; check sources first.
+      - uid: sre_distinct_denied_shadow
+        title: DistinctDeniedOrdersShadow
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange: {from: 600, to: 0}
+            model:
+              datasource: {type: loki, uid: loki}
+              editorMode: code
+              expr: 'count by (actor) (sum by (actor, target) (count_over_time({app="mall-portal",stream="security",event="access.denied.not_owner"} | json | actor!="" | target!="" [10m])))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+              queryType: instant
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: {from: 0, to: 0}
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: '$A >= 3'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: math
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          sre_mode: shadow
+          sre_kind: security_signal
+          fingerprint: access.denied.distinct_targets
+          route: /order/detail
+          severity: info
+        annotations:
+          summary: Three distinct denied orders for one account in ten minutes; review normal shared links before action.

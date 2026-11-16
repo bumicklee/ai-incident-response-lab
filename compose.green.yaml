@@ -1,0 +1,5 @@
+services:
+  mall-portal:
+    environment:
+      SECUREKIT_SERVER_PRICE_ENABLED: "true"
+      SECUREKIT_RETURN_OWNER_ENABLED: "true"

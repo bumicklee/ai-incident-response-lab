@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}사건 #{{ incident.id }} · 사건함{% endblock %}
+{% block content %}
+  <p><a class="back" href="/">← 사건 목록</a></p>
+  <section class="intro">
+    <span class="tag {{ 'error' if incident.kind == 'error_500' else 'security' }}">{{ '장애 경보' if incident.kind == 'error_500' else '보안 조사 신호' }}</span>
+    <span class="tag origin">{{ 'Grafana 경보' if incident.origin == 'grafana' else '재생 자료' if incident.origin == 'lab_replay' else '수동 시험' }}</span>
+    <h1>{{ incident.title }}</h1>
+    <p>사건 #{{ incident.id }} · {{ incident.state }} · 접수된 알림 {{ incident.count }}건</p>
+  </section>
+  <div class="detail-grid">
+    <section class="panel">
+      <h2>관측 사실</h2>
+      <dl>
+        <dt>알림 시작 시각 범위</dt><dd>{{ incident.first_seen }} ~ {{ incident.last_seen }}</dd>
+        <dt>경로</dt><dd>{{ incident.route or '미확인' }}</dd>
+        <dt>오류·이벤트 지문</dt><dd><code>{{ incident.fingerprint }}</code></dd>
+        <dt>추적 ID</dt><dd><code>{{ incident.trace_id or '미확인' }}</code></dd>
+      </dl>
+      {% if incident.evidence_url %}<p><a href="{{ incident.evidence_url }}" target="_blank" rel="noopener">Grafana 경보 열기 ↗</a></p>{% endif %}
+    </section>
+    <section class="panel">
+      <h2>판단은 원문 뒤에</h2>
+      <p><b>현재 판단:</b> {{ incident.assessment }}</p>
+      <p><b>아직 모르는 것:</b> {{ incident.unknown }}</p>
+      <p><b>다음 행동:</b> {{ incident.next_action }}</p>
+      <p><a href="/incidents/{{ incident.id }}/report.md">사건 기록 Markdown 내려받기</a></p>
+    </section>
+  </div>
+  {% if analysis_job %}
+  <section class="panel">
+    <h2>로컬 자동 분석 작업</h2>
+    <p>상태: {{ '대기' if analysis_job.state == 'pending' else '분석 중' if analysis_job.state == 'running' else '완료' if analysis_job.state == 'complete' else '실패 후 대기 중단' }}</p>
+    {% if analysis_job.backend %}<p>실행 경로: {{ 'Claude CLI' if analysis_job.backend == 'cli' else 'Claude API' }}</p>{% endif %}
+    {% if analysis_job.state == 'failed' %}<p>자동 재시도하지 않습니다. 담당자가 로컬 작업자 오류를 확인한 뒤 재시도를 지정합니다.</p>{% endif %}
+  </section>
+  {% endif %}
+  {% if analysis %}
+  <section class="panel">
+    <h2>{{ '500 원인 분석' if analysis.analysis_kind == 'rca_500' else '보안 신호 조사' }}</h2>
+    <p>작성자 유형: {{ analysis.author }} · 작성 시각: {{ analysis.created_at }}</p>
+    <h3>관측 사실</h3><ul>{% for line in analysis.observations %}<li>{{ line }}</li>{% endfor %}</ul>
+    <h3>원인 가설·판단</h3><ul>{% for line in analysis.hypotheses %}<li>{{ line }}</li>{% endfor %}</ul>
+    <h3>아직 모르는 것</h3><ul>{% for line in analysis.unknowns %}<li>{{ line }}</li>{% endfor %}</ul>
+    <h3>근거 위치</h3><ul>{% for line in analysis.evidence_refs %}<li>{{ line }}</li>{% endfor %}</ul>
+    <p><b>다음 행동:</b> {{ analysis.next_action }}</p>
+    <p><a href="/incidents/{{ incident.id }}/rca.md">분석 보고서 Markdown 내려받기</a></p>
+  </section>
+  {% endif %}
+  <section class="panel">
+    <h2>사람의 결정</h2>
+    {% for item in decisions %}
+    <p>{{ '수정 승인' if item.decision == 'approve_fix' else '확인 시험으로 결함 확인' if item.decision == 'confirm_defect' else '보류' }} · {{ item.decided_at }} · {{ item.actor }}{% if item.note %} · {{ item.note }}{% endif %}</p>
+    {% else %}<p>아직 결정하지 않았습니다.</p>{% endfor %}
+    {% if not decisions or not (decisions | selectattr('decision', 'equalto', 'approve_fix') | list) %}
+    <form action="/incidents/{{ incident.id }}/decision" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="decision-note">결정 이유</label>
+      <input id="decision-note" name="note" maxlength="300" placeholder="근거와 다음 확인 항목">
+      <button type="submit" name="decision" value="hold">보류 기록</button>
+      {% if incident.kind == 'security_signal' and analysis and not (decisions | selectattr('decision', 'equalto', 'confirm_defect') | list) %}
+      <button type="submit" name="decision" value="confirm_defect">확인 시험으로 결함 확인</button>
+      {% endif %}
+      {% if analysis and (incident.kind == 'error_500' or (decisions | selectattr('decision', 'equalto', 'confirm_defect') | list)) %}
+      <button type="submit" name="decision" value="approve_fix">수정 요청 승인</button>
+      {% endif %}
+    </form>
+    {% if incident.kind == 'security_signal' %}<p>결함 확인에는 실패한 시험의 저장 파일 경로를 이유에 적습니다. 확인 뒤 별도로 수정 요청을 승인합니다.</p>{% endif %}
+    {% endif %}
+    <p>승인은 코드 변경을 자동 실행하지 않습니다. 별도 작업자가 승인 기록을 확인한 뒤에만 수정 작업을 시작합니다.</p>
+  </section>
+  {% if verification %}
+  <section class="panel">
+    <h2>재시험과 관찰 기록</h2>
+    <p>수정 전 {{ verification.before_result }} → 수정 후 {{ verification.after_result }}</p>
+    <p>관찰 {{ verification.observation_minutes }}분 · 기록자 {{ verification.actor }} · {{ verification.recorded_at }}</p>
+    <p>근거 파일: <code>{{ verification.evidence_ref }}</code></p>
+  </section>
+  {% elif decisions | selectattr('decision', 'equalto', 'approve_fix') | list %}
+  <section class="panel">
+    <h2>재시험과 관찰 기록</h2>
+    <form action="/incidents/{{ incident.id }}/verification" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>수정 전 HTTP/본문 코드 <input name="before_result" placeholder="500/500" required></label>
+      <label>수정 후 HTTP/본문 코드 <input name="after_result" placeholder="200/200" required></label>
+      <label>관찰한 시간(분) <input name="observation_minutes" type="number" min="15" max="120" required></label>
+      <label>재시험·관찰 증거 파일 <input name="evidence_ref" maxlength="300" placeholder="measurements/followup.json" required></label>
+      <button type="submit">확인 완료 기록</button>
+    </form>
+    <p>파일 경로는 사람이 확인한 증거를 기록합니다. 서버가 파일 내용을 자동 검증하지는 않습니다.</p>
+  </section>
+  {% endif %}
+  <p class="note">알림 수는 원본 로그 건수가 아닙니다. 분석 보고서도 코드 수정 승인·PR·배포 완료의 증거가 아닙니다.</p>
+{% endblock %}

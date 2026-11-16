@@ -1,0 +1,233 @@
+name: sre-lab
+
+# Preparation stack: extracted shopping-mall portal, its runtime dependencies, and
+# the Alloy/Loki/Grafana observability path. Incident fixtures, alert
+# rules, on-call web, ntfy, and agents are intentionally not claimed as ready.
+services:
+  mysql:
+    image: mysql:8.4.13
+    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${LAB_MYSQL_PASSWORD:-sre-lab-root-2026}
+      MYSQL_DATABASE: mall
+      TZ: Asia/Seoul
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./spring/document/sql/mall.sql:/docker-entrypoint-initdb.d/10-mall.sql:ro
+      - ./seed/spring/20-daon-accounts.sql:/docker-entrypoint-initdb.d/20-daon-accounts.sql:ro
+      - ./seed/spring/30-daon-bulk.sql:/docker-entrypoint-initdb.d/30-daon-bulk.sql:ro
+      - ./seed/spring/40-pii-column-width.sql:/docker-entrypoint-initdb.d/40-pii-column-width.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -uroot -p\"$$MYSQL_ROOT_PASSWORD\" -e 'SELECT 1 FROM mall.ums_member LIMIT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+    mem_limit: 768m
+    networks:
+      default:
+        aliases: [db]
+
+  db-init:
+    image: mysql:8.4.13
+    entrypoint: ["/bin/sh", "/db-init.sh"]
+    environment:
+      LAB_MYSQL_PASSWORD: ${LAB_MYSQL_PASSWORD:-sre-lab-root-2026}
+      LAB_BAO_DB_PASSWORD: ${LAB_BAO_DB_PASSWORD:-sre-lab-bao-db-2026}
+    volumes:
+      - ./infra/openbao/db-init.sh:/db-init.sh:ro
+    depends_on:
+      mysql: {condition: service_healthy}
+    restart: "no"
+    mem_limit: 128m
+
+  openbao:
+    image: openbao/openbao:2.4.1
+    command: ["server", "-config=/openbao/config/config.hcl"]
+    volumes:
+      - ./infra/openbao/config.hcl:/openbao/config/config.hcl:ro
+      - bao-data:/openbao/file
+      - bao-logs:/openbao/logs
+    cap_add: [IPC_LOCK]
+    healthcheck:
+      test: ["CMD-SHELL", "BAO_ADDR=http://127.0.0.1:8200 bao status >/dev/null 2>&1; rc=$$?; [ $$rc -eq 0 ] || [ $$rc -eq 2 ]"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    mem_limit: 256m
+
+  openbao-init:
+    image: openbao/openbao:2.4.1
+    entrypoint: ["/bin/sh", "/init.sh"]
+    environment:
+      DAON_BAO_DB_PASSWORD: ${LAB_BAO_DB_PASSWORD:-sre-lab-bao-db-2026}
+      DAON_DRUID_PASSWORD: ${LAB_DRUID_PASSWORD:-sre-lab-druid-2026}
+      DAON_CACHE_HMAC_KEY: ${LAB_CACHE_HMAC_KEY:-sre-lab-cache-hmac-2026}
+      DAON_PAYMENT_WEBHOOK_SECRET: ${LAB_WEBHOOK_SECRET:-sre-lab-webhook-2026}
+      DAON_MONGO_APP_PASSWORD: ${LAB_MONGO_PASSWORD:-sre-lab-mongo-2026}
+      DAON_RABBIT_APP_PASSWORD: ${LAB_RABBIT_PASSWORD:-sre-lab-rabbit-2026}
+      DAON_MINIO_APP_ACCESS_KEY: ${LAB_MINIO_ACCESS_KEY:-srelabaccess}
+      DAON_MINIO_APP_SECRET_KEY: ${LAB_MINIO_SECRET_KEY:-sre-lab-minio-2026}
+    volumes:
+      - ./infra/openbao/init.sh:/init.sh:ro
+      - bao-lab:/bao-lab
+      - bao-creds:/bao-creds
+    depends_on:
+      openbao: {condition: service_healthy}
+      db-init: {condition: service_completed_successfully}
+    restart: "no"
+    mem_limit: 128m
+
+  redis:
+    image: redis:7.4.12
+    # secure-kit 기동 검사가 찾아낸 빈 비밀번호를 막는다. 값은 lab/.env의 LAB_REDIS_PASSWORD(없으면 실습 기본값)
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${LAB_REDIS_PASSWORD:-sre-lab-redis-2026}
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 128m
+
+  rabbitmq:
+    image: rabbitmq:4.2.9-management
+    hostname: rabbit
+    user: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: sre-lab
+      RABBITMQ_DEFAULT_PASS: ${LAB_RABBIT_PASSWORD:-sre-lab-rabbit-2026}
+      RABBITMQ_DEFAULT_VHOST: /mall
+    volumes: [rabbit-data:/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    mem_limit: 384m
+    networks:
+      default:
+        aliases: [rabbit]
+
+  mongo:
+    image: mongo:7.0.28
+    command: ["mongod", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    mem_limit: 512m
+
+  mall-portal:
+    build:
+      context: ./spring
+      dockerfile: ../infra/Dockerfile.portal
+    image: sre-lab/mall-portal:dev
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/mall?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Seoul&useSSL=false&allowPublicKeyRetrieval=true
+      DAON_DB_USER: root
+      DAON_DB_PASSWORD: ${LAB_MYSQL_PASSWORD:-sre-lab-root-2026}
+      DAON_DRUID_PASSWORD: ${LAB_DRUID_PASSWORD:-sre-lab-druid-2026}
+      DAON_OPENBAO_ADDR: http://openbao:8200
+      DAON_OPENBAO_ROLE: portal
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/mall-port
+      SPRING_DATA_MONGODB_USERNAME: ""
+      SPRING_DATA_REDIS_PASSWORD: ${LAB_REDIS_PASSWORD:-sre-lab-redis-2026}
+      SPRING_RABBITMQ_USERNAME: sre-lab
+      SPRING_RABBITMQ_PASSWORD: ${LAB_RABBIT_PASSWORD:-sre-lab-rabbit-2026}
+      SECUREKIT_SIGNED_SWITCHES_ENABLED: "false"
+      SECUREKIT_SERVER_PRICE_ENABLED: "false"
+      SECUREKIT_RETURN_OWNER_ENABLED: "false"
+      SECUREKIT_KIT_LOGIN_ENABLED: "false"     # secure-kit 로그인 단원. compose.kit.yaml이 켠다
+      LOGGING_PATTERN_CORRELATION: "[%X{trace_id:-}] "
+      TZ: Asia/Seoul
+    volumes:
+      - bao-creds:/run/openbao:ro
+    ports: ["127.0.0.1:${LAB_PORTAL_PORT:-18085}:8085"]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      mongo: {condition: service_healthy}
+      openbao-init: {condition: service_completed_successfully}
+    mem_limit: 768m
+
+  loki:
+    image: grafana/loki:3.7.9
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    environment:
+      GOMEMLIMIT: 200MiB
+    volumes:
+      - ./infra/observability/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    ports: ["127.0.0.1:${LAB_LOKI_PORT:-13100}:3100"]
+    mem_limit: 256m
+    networks: [obs]
+
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.2
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+      POST: 0
+      EVENTS: 0
+      INFO: 0
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
+    mem_limit: 32m
+    networks: [obs-sock]
+
+  alloy:
+    image: grafana/alloy:v1.20.1
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "--disable-reporting", "/etc/alloy/config.alloy"]
+    environment:
+      GOMEMLIMIT: 150MiB
+    volumes:
+      - ./infra/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on: [loki, docker-proxy]
+    mem_limit: 192m
+    networks: [obs, obs-sock]
+
+  grafana:
+    image: grafana/grafana:12.4.13
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${LAB_GRAFANA_PASSWORD:-sre-lab-grafana-2026}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: Asia/Seoul
+    volumes:
+      - ./infra/observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - grafana-data:/var/lib/grafana
+    ports: ["127.0.0.1:${LAB_GRAFANA_PORT:-13030}:3000"]
+    depends_on: [loki]
+    mem_limit: 320m
+    networks: [obs]
+
+networks:
+  default: {}
+  obs: {}
+  obs-sock: {internal: true}
+
+volumes:
+  mysql-data: {}
+  redis-data: {}
+  rabbit-data: {}
+  mongo-data: {}
+  loki-data: {}
+  alloy-data: {}
+  grafana-data: {}
+  bao-data: {}
+  bao-logs: {}
+  bao-lab: {}
+  bao-creds: {}

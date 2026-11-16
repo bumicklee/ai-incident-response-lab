@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}사건 목록 · 사건함{% endblock %}
+{% block content %}
+  <section class="intro">
+    <p class="eyebrow">ON-CALL INBOX</p>
+    <h1>지금 확인할 사건</h1>
+    <p>500 장애와 보안 조사 신호를 구분해 원문부터 확인합니다.</p>
+  </section>
+  <section class="grid" aria-label="사건 목록">
+  {% for incident in incidents %}
+    <a class="card" href="/incidents/{{ incident.id }}">
+      <span class="tag {{ 'error' if incident.kind == 'error_500' else 'security' }}">{{ '장애 경보' if incident.kind == 'error_500' else '보안 조사 신호' }}</span>
+      <span class="tag origin">{{ 'Grafana 경보' if incident.origin == 'grafana' else '재생 자료' if incident.origin == 'lab_replay' else '수동 시험' }}</span>
+      <h2>{{ incident.title }}</h2>
+      <p class="meta">사건 #{{ incident.id }} · {{ incident.state }} · 접수된 알림 {{ incident.count }}건</p>
+      <p>첫 접수 신호 {{ incident.first_seen }}<br>최근 접수 신호 {{ incident.last_seen }}</p>
+    </a>
+  {% else %}
+    <div class="empty">아직 접수된 사건이 없습니다. 정상 구간에서는 이 상태가 맞습니다.</div>
+  {% endfor %}
+  </section>
+{% endblock %}

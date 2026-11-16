@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+export MYSQL_PWD="$LAB_MYSQL_PASSWORD"
+mysql -h db -uroot mall <<SQL
+CREATE USER IF NOT EXISTS 'openbao'@'%' IDENTIFIED BY '${LAB_BAO_DB_PASSWORD}';
+ALTER USER 'openbao'@'%' IDENTIFIED BY '${LAB_BAO_DB_PASSWORD}';
+GRANT CREATE USER ON *.* TO 'openbao'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX ON mall.* TO 'openbao'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+SQL
+echo 'OpenBao DB 계정 준비 완료'

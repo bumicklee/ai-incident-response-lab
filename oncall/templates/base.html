@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}백엔드 장애·해킹 탐지 사건함{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header><a href="/">백엔드 장애·해킹 탐지 · 사건함</a><span>실습용 · 로컬 사건</span></header>
+  <main>{% block content %}{% endblock %}</main>
+  <footer>경보는 조사 시작 신호입니다. 보안 이벤트 한 건으로 침해를 확정하지 않습니다.</footer>
+</body>
+</html>

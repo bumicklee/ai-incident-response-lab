@@ -1,0 +1,40 @@
+services:
+  grafana:
+    environment:
+      LAB_ONCALL_INGEST_TOKEN: ${LAB_ONCALL_INGEST_TOKEN:?run make setup-oncall}
+      GF_SERVER_ROOT_URL: http://127.0.0.1:${LAB_GRAFANA_PORT:-13030}
+    volumes:
+      - ./infra/observability/grafana/alerting:/etc/grafana/provisioning/alerting:ro
+
+  ntfy:
+    image: binwiederhier/ntfy:v2.37.2
+    command: ["serve"]
+    volumes:
+      - ./runtime/ntfy/server.yml:/etc/ntfy/server.yml:ro
+      - ntfy-data:/var/cache/ntfy
+    ports: ["127.0.0.1:${LAB_NTFY_PORT:-18091}:80"]
+    mem_limit: 128m
+    networks: [obs]
+
+  oncall:
+    build: ./oncall
+    environment:
+      ONCALL_DB: /data/incidents.sqlite3
+      ONCALL_INGEST_TOKEN: ${LAB_ONCALL_INGEST_TOKEN:?run make setup-oncall}
+      ONCALL_ANALYSIS_TOKEN: ${LAB_ONCALL_ANALYSIS_TOKEN:?run make setup-oncall}
+      ONCALL_CSRF_SECRET: ${LAB_ONCALL_CSRF_SECRET:?run make setup-oncall}
+      ONCALL_VIEW_USER: ${LAB_ONCALL_VIEW_USER:?run make setup-oncall}
+      ONCALL_VIEW_PASSWORD: ${LAB_ONCALL_VIEW_PASSWORD:?run make setup-oncall}
+      ONCALL_NTFY_URL: http://ntfy/
+      ONCALL_NTFY_TOPIC: sre-lab
+      ONCALL_NTFY_TOKEN: ${LAB_NTFY_PUBLISH_TOKEN:?run make setup-oncall}
+      ONCALL_CLICK_BASE_URL: http://10.0.2.2:${LAB_ONCALL_PORT:-18090}
+    volumes: [oncall-data:/data]
+    ports: ["127.0.0.1:${LAB_ONCALL_PORT:-18090}:8080"]
+    depends_on: [ntfy]
+    mem_limit: 192m
+    networks: [obs]
+
+volumes:
+  ntfy-data: {}
+  oncall-data: {}

@@ -1,0 +1,13 @@
+# secure-kit 단원: 로그인에 킷의 @RateLimited를 켠다.
+#   docker compose -f compose.yaml -f compose.kit.yaml up -d --no-deps --force-recreate mall-portal   (make up-kit)
+# 손으로 만든 옛 로그인 제한기(login-ratelimit)는 끄고, 같은 일을 킷이 맡는다.
+services:
+  mall-portal:
+    environment:
+      SECUREKIT_KIT_LOGIN_ENABLED: "true"
+      SECUREKIT_LOGIN_RATELIMIT_ENABLED: "false"
+      # 킷 한도(설정 secure-kit.rate-limit.login.*). 계정별 실패 5번/10분
+      SECURE_KIT_RATE_LIMIT_LOGIN_PER_ACCOUNT: "5/10m"
+      # IP별 한도: 처음 20/10m → 같은 Docker 게이트웨이 IP 뒤의 정상 회원(alice)이 맞는 비밀번호로도 429(2026-11-15 실측).
+      # 공유 IP를 막지 않도록 100/10m로 올리고, 막지 못한 크리덴셜 스터핑은 경보(LoginUnknownAccountBurst)로 잡는다.
+      SECURE_KIT_RATE_LIMIT_LOGIN_PER_IP: "${KIT_LOGIN_PER_IP:-100/10m}"

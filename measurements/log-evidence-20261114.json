@@ -1,0 +1,95 @@
+{
+  "source": "Loki query_range by each stage trace ID",
+  "stage_files": [
+    "stages-red-20261114T003106Z.json",
+    "stages-green-20261114T003602Z.json"
+  ],
+  "records": [
+    {
+      "mode": "red",
+      "step": "security_foreign_order_denied",
+      "trace_id": "sre-55bf8b9046904a65",
+      "loki_lines_with_trace": 1,
+      "events": [
+        {
+          "event": "access.denied.not_owner",
+          "lesson": "2-2",
+          "reason": "본인 주문이 아니거나 없는 주문",
+          "target": "order:9001",
+          "trace_id": "sre-55bf8b9046904a65"
+        }
+      ],
+      "null_pointer_exception_lines": 0,
+      "sql_error_lines": 0
+    },
+    {
+      "mode": "red",
+      "step": "error_order_without_price",
+      "trace_id": "sre-dceda9f6265c4f43",
+      "loki_lines_with_trace": 2,
+      "events": [
+        {
+          "event": "error.unhandled",
+          "lesson": "9-2",
+          "reason": "NullPointerException",
+          "target": "handler:OmsPortalOrderController.generateOrder",
+          "trace_id": "sre-dceda9f6265c4f43"
+        }
+      ],
+      "null_pointer_exception_lines": 1,
+      "sql_error_lines": 0
+    },
+    {
+      "mode": "red",
+      "step": "security_foreign_return",
+      "trace_id": "sre-e43e403c3b114a71",
+      "loki_lines_with_trace": 0,
+      "events": [],
+      "null_pointer_exception_lines": 0,
+      "sql_error_lines": 0
+    },
+    {
+      "mode": "green",
+      "step": "security_foreign_order_denied",
+      "trace_id": "sre-93481a6115e4432b",
+      "loki_lines_with_trace": 1,
+      "events": [
+        {
+          "event": "access.denied.not_owner",
+          "lesson": "2-2",
+          "reason": "본인 주문이 아니거나 없는 주문",
+          "target": "order:9001",
+          "trace_id": "sre-93481a6115e4432b"
+        }
+      ],
+      "null_pointer_exception_lines": 0,
+      "sql_error_lines": 0
+    },
+    {
+      "mode": "green",
+      "step": "error_order_without_price",
+      "trace_id": "sre-18eba4fb9efa42f5",
+      "loki_lines_with_trace": 2,
+      "events": [],
+      "null_pointer_exception_lines": 0,
+      "sql_error_lines": 0
+    },
+    {
+      "mode": "green",
+      "step": "security_foreign_return",
+      "trace_id": "sre-94a0fac80e8846a1",
+      "loki_lines_with_trace": 1,
+      "events": [
+        {
+          "event": "access.denied.not_owner",
+          "lesson": "2-mission",
+          "reason": "본인 주문이 아니거나 없는 주문으로 반품 신청",
+          "target": "order:9002",
+          "trace_id": "sre-94a0fac80e8846a1"
+        }
+      ],
+      "null_pointer_exception_lines": 0,
+      "sql_error_lines": 0
+    }
+  ]
+}
